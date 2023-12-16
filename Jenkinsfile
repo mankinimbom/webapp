@@ -1,0 +1,143 @@
+pipeline {
+    agent any
+    stages {
+        stage('ContinuousCheckout') {
+            steps {
+                script {
+                    try {
+                        git branch: 'main', url: 'https://github.com/mankinimbom/webapp.git'
+                    } catch(Exception e1) {
+                        mail bcc: '', body: 'Error during Git checkout: ' + e1.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Git Checkout Failure', to: 'ankinimbommichaely@gmail.com'
+                        error("Git checkout failed: " + e1.getMessage())
+                    }
+                }
+            }
+        }
+        stage('ContinuousBuild') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn clean install'
+                    } catch(Exception e2) {
+                        mail bcc: '', body: 'Build failure: ' + e2.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Build Failure', to: 'ankinimbommichaely@gmail.com'
+                        error("Build failed: " + e2.getMessage())
+                    }
+                }
+            }
+        }
+        stage('ContinuousScan') {
+            steps {
+                script {
+                    try {
+                        withSonarQubeEnv('sonarqube') {
+                            sh 'mvn sonar:sonar'
+                        }
+                    } catch(Exception e3) {
+                        mail bcc: '', body: 'SonarQube analysis failure: ' + e3.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'SonarQube Analysis Failure', to: 'ankinimbommichaely@gmail.com'
+                        error("SonarQube analysis failed: " + e3.getMessage())
+                    }
+                }
+            }
+        }
+        stage('QualityGate') {
+            steps {
+                script {
+                    timeout(time: 1, unit: 'HOURS') {
+                        def qg = waitForQualityGate() 
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                        }
+                    }
+                }
+            }
+        }
+        stage('ContinuousTesting') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn test'
+                    } catch(Exception e4) {
+                        mail bcc: '', body: 'Testing failure: ' + e4.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Testing Failure', to: 'ankinimbommichaely@gmail.com'
+                        error("Testing failed: " + e4.getMessage())
+                    }
+                }
+            }
+        }
+        stage('ContinuousUpload') {
+            steps {
+                script {
+                    try {
+                        nexusArtifactUploader(
+                            artifacts: [
+                                [
+                                    artifactId: 'webapp', 
+                                    classifier: '', 
+                                    file: '//var/jenkins_home/workspace/project/target/paradigm.war', 
+                                    type: 'war'
+                                ]
+                            ],
+                            credentialsId: 'nexus',
+                            groupId: 'webapp',
+                            nexusUrl: 'nexuserver.atparadigmlabs.com',
+                            nexusVersion: 'nexus3',
+                            protocol: 'https',
+                            repository: 'maven-snapshots',
+                            version: '1.0-SNAPSHOT'
+                        )
+                    } catch(Exception e5) {
+                        mail bcc: '', body: 'Artifact upload failure: ' + e5.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Artifact Upload Failure', to: 'ankinimbommichaely@gmail.com'
+                        error("Artifact upload failed: " + e5.getMessage())
+                    }
+                }
+            }
+        }
+        stage('ContinuousDeployQA') {
+            steps{
+                script{
+                    try{
+                        deploy adapters: [tomcat9(credentialsId: 'tomcat', path: '', url: 'https://tomee.atparadigmlabs.com/')], contextPath: 'testapp', war: '**/*.war'
+                    } catch(Exception e6) {
+                        mail bcc: '', body: 'Deployment to QA failed: ' + e6.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'QA Deployment Failure', to: 'ankinimbommichaely@gmail.com'                        
+                        error("Deployment to QA failed: " + e6.getMessage())
+                    }
+                }
+            }
+        }
+        stage('ContinuousDeliveryProd') {
+            steps{
+                script{
+                    try{
+                        deploy adapters: [tomcat9(credentialsId: 'tomcat', path: '', url: 'https://tomee.atparadigmlabs.com/')], contextPath: 'testapp', war: '**/*.war'
+                    } catch(Exception e7) {
+                        mail bcc: '', body: 'Deployment to Production failed: ' + e7.getMessage(), cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Production Deployment Failure', to: 'ankinimbommichaely@gmail.com'                        
+                        error("Deployment to Production failed: " + e7.getMessage())
+                    }
+                }
+            }
+        }
+        stage('Check Monitoring Services') {
+            steps {
+                script{
+                    try {
+                        sh '''
+                        echo "Checking Prometheus..."
+                        curl -f https://prom.atparadigmlabs.com/-/healthy
+                        echo "Checking Grafana..."
+                        curl -f https://grafan.atparadigmlabs.com/api/health
+                        '''
+                    } catch(Exception e8) {
+                        mail bcc: '', body: 'Monitoring services check failed: ' + e8.getMessage(), to: 'ankinimbommichaely@gmail.com', subject: 'Monitoring Services Failure', from: '', replyTo: '', cc: 'ankinimbommichaely@gmail.com'
+                        error("Monitoring services check failed: " + e8.getMessage())
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            mail to: 'ankinimbommichaely@gmail.com',
+                 subject: "Pipeline Execution Complete - ${currentBuild.result}",
+                 body: "The pipeline execution for the project is complete. Status: ${currentBuild.result}."
+        }
+    }
+}
