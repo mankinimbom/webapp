@@ -1,0 +1,121 @@
+pipeline {
+    agent any
+    stages {
+        stage('ContinuousCheckout') {
+            steps {
+                script {
+                    try {
+                        git branch: 'main', url: 'https://github.com/mankinimbom/webapp.git'
+                    } catch(Exception e1) {
+                        mail bcc: '', body: 'Jenkins was unable to download the code from the GitHub repository', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Git SCM Checkout Failed', to: 'ankinimbommichaely@gmail.com'
+                        error("Git clone failed")
+                    }
+                }
+            }
+        }
+        stage('ContinuousBuild') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn package'
+                    } catch(Exception e2) {
+                        mail bcc: '', body: 'Maven was unable to build the project', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Maven Build Failed', to: 'ankinimbommichaely@gmail.com'
+                        error("Maven build failed")
+                    }
+                }
+            }
+        }
+        stage('ContinuousScan') {
+            steps {
+                script {
+                    try {
+                        withSonarQubeEnv('sonarqube') {
+                            sh 'mvn sonar:sonar'
+                        }
+                    } catch(Exception e3) {
+                        mail bcc: '', body: 'SonarQube analysis failed', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'SonarQube Analysis Failed', to: 'ankinimbommichaely@gmail.com'
+                        error("Sonar analysis failed")
+                    }
+                }
+            }
+        }
+        stage('ContinuousTesting') {
+            steps {
+                script {
+                    try {
+                        sh 'mvn test'
+                    } catch(Exception e4) {
+                        mail bcc: '', body: 'Jenkins Maven was unable to run tests', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Maven Test Failed', to: 'ankinimbommichaely@gmail.com'
+                        error("Testing failed")
+                    }
+                }
+            }
+        }
+        stage('ContinuousUpload') {
+            steps {
+                script {
+                    try {
+                        nexusArtifactUploader(
+                            artifacts: [
+                                [
+                                    artifactId: 'webapp', 
+                                    classifier: '', 
+                                    file: '//var/jenkins_home/workspace/project/target/paradigm.war', 
+                                    type: 'war'
+                                ]
+                            ],
+                            credentialsId: 'nexus',
+                            groupId: 'webapp',
+                            nexusUrl: 'nexuserver.atparadigmlabs.com',
+                            nexusVersion: 'nexus3',
+                            protocol: 'https',
+                            repository: 'maven-snapshots',
+                            version: '1.0-SNAPSHOT'
+                        )
+                    } catch(Exception e5) {
+                        mail bcc: '', body: 'Artifact upload failed', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Artifact Upload Failed', to: 'ankinimbommichaely@gmail.com'
+                        error("Artifact upload failed")
+                    }
+                }
+            }
+        }
+        stage('ContinuousDeployQA') {
+            steps{
+                script{
+                    try{
+                        deploy adapters: [tomcat9(credentialsId: 'tomcat', path: '', url: 'https://tomee.atparadigmlabs.com/')], contextPath: 'testapp', war: '**/*.war'
+                    } catch(Exception e6) {
+                        mail bcc: '', body: 'Artifact upload failed', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Artifact Upload Failed', to: 'ankinimbommichaely@gmail.com'                        
+                    }
+                }
+            }
+        }
+        stage('ContinuousDeliveryProd') {
+            steps{
+                script{
+                    try{
+                        deploy adapters: [tomcat9(credentialsId: 'tomcat', path: '', url: 'https://tomee.atparadigmlabs.com/')], contextPath: 'testapp', war: '**/*.war'
+                    } catch(Exception e6) {
+                        mail bcc: '', body: 'Artifact upload failed', cc: 'ankinimbommichaely@gmail.com', from: '', replyTo: '', subject: 'Artifact Upload Failed', to: 'ankinimbommichaely@gmail.com'                        
+                    }
+                }
+            }
+        }
+        stage('Check Monitoring Services') {
+            steps {
+                script{
+                try {
+                    sh '''
+                    echo "Checking Prometheus..."
+                    curl -f hhttps://prom.atparadigmlabs.com/-/healthy
+                    echo "Checking Grafana..."
+                    curl -f https://grafan.atparadigmlabs.com/api/health
+                    '''
+                } catch(Exception e) {
+                    emailext body: 'Monitoring services are not available', to: 'ankinimbommichaely@gmail.com', subject: 'Monitoring services check failed'
+                    error("Monitoring services check failed")
+                }
+            }
+        }
+    }
+}
