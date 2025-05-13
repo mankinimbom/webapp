@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: javaapp
+  description: maven tomcat application
+  annotations:
+    github.com/project-slug: mankinimbom/webapp
+
+spec:
+  type: service
+  owner: development
+  lifecycle: experimentation
