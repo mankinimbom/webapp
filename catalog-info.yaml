@@ -5,6 +5,7 @@ metadata:
   description: maven tomcat application
   annotations:
     github.com/project-slug: mankinimbom/webapp
+    backstage.io/techdocs-ref: dir:.
 
 spec:
   type: service
